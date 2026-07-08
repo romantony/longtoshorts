@@ -93,7 +93,7 @@ def upscale_video(src: Path, out: Path, target_h: int = 1080) -> bool:
     Returns False (no-op, ``out`` not written) when the source is already at
     or above ``target_h``. Raises UpscaleUnavailable / RenderError on failure.
     """
-    import numpy as np  # ships with torch
+    import numpy as np
 
     info = probe_video(src)
     in_w, in_h, fps = info["width"], info["height"], info["fps"] or 30.0
