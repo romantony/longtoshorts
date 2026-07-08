@@ -95,14 +95,14 @@ def upscale_video(src: Path, out: Path, target_h: int = 1080) -> bool:
     """
     import numpy as np  # ships with torch
 
-    model = _load_model()
-    import torch
-
     info = probe_video(src)
     in_w, in_h, fps = info["width"], info["height"], info["fps"] or 30.0
     if in_h >= target_h:
         logger.info("upscale skipped: source %dx%d already >= %dp", in_w, in_h, target_h)
         return False
+
+    model = _load_model()
+    import torch
 
     out_w, out_h = in_w * 4, in_h * 4
     if out_h > target_h:  # downscale the x4 result to the requested target

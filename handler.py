@@ -284,6 +284,7 @@ def _process_short(
             logger.warning("part %d: Real-ESRGAN upscale failed (%s) — "
                            "falling back to lanczos", n, exc)
             result["upscale"] = "lanczos_fallback"
+            result["upscale_error"] = str(exc)
     elif upscale_method == "lanczos":
         result["upscale"] = "lanczos"
 
