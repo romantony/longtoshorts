@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.env
+*.mp4
+*.wav
+*.m4a
+*.mp3
+*.srt
+*.ass
+out/
+.venv/
+.claude/settings.local.json*

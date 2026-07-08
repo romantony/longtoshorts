@@ -1,0 +1,46 @@
+name: shorts-longform → Docker Hub
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "handler.py"
+      - "shorts/**"
+      - "requirements.txt"
+      - "Dockerfile"
+      - ".github/workflows/shorts-longform-dockerhub.yml"
+  workflow_dispatch:
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # GH-hosted runners run out of disk on CUDA base images.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /opt/hostedtoolcache/CodeQL \
+                      /usr/share/dotnet /opt/ghc /usr/local/.ghcup
+          df -h /
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/shorts-longform:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/shorts-longform:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
