@@ -141,7 +141,20 @@ def run_offline_checks() -> int:
     check("BLUR_FILL uses filter_complex + [vout]", complex_ and f.endswith("[vout]"))
     f, complex_ = build_convert_filter("16:9", "9:16", 1080, 1920, "CROP_FILL")
     check("CROP_FILL simple vf", not complex_ and "crop=1080:1920" in f)
+    check("no sharpen by default", "unsharp" not in f and "lanczos" not in f)
+    f, _ = build_convert_filter("16:9", "9:16", 1080, 1920, "CROP_FILL", sharpen=True)
+    check("sharpen adds lanczos+unsharp", "flags=lanczos" in f and "unsharp" in f)
     check("style normalisation", normalize_render_style("weird") == "BLUR_FILL")
+
+    # --- upscale: graceful degradation without torch/GPU --------------------------
+    from shorts.upscale import UpscaleUnavailable, _load_model
+    try:
+        _load_model()
+        check("upscale model loads or raises UpscaleUnavailable", True)
+    except UpscaleUnavailable:
+        check("upscale model loads or raises UpscaleUnavailable", True)
+    except Exception:
+        check("upscale model loads or raises UpscaleUnavailable", False)
 
     print()
     if failures:

@@ -35,6 +35,7 @@ from shorts import probe as probe_mod
 from shorts import render as render_mod
 from shorts import segments as seg_mod
 from shorts import transcribe as stt_mod
+from shorts import upscale as up_mod
 from shorts.storage import R2Storage
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -70,6 +71,21 @@ def _fetch_srt_cues(srt_url: str) -> list:
     if not cues:
         raise ValueError("srt_url returned no parseable cues")
     return cues
+
+
+def _upscale_settings(inp: Dict[str, Any]) -> tuple:
+    """Return (method, target_h). method in {"none", "lanczos", "realesrgan"}."""
+    method = str(inp.get("upscale") or "none").strip().lower()
+    if method in ("", "false", "none", "off"):
+        method = "none"
+    elif method in ("true", "esrgan", "realesrgan", "real-esrgan"):
+        method = "realesrgan"
+    elif method != "lanczos":
+        logger.warning("unknown upscale method %r — using lanczos", method)
+        method = "lanczos"
+    raw_target = str(inp.get("upscale_target") or 1080).lower().rstrip("p")
+    target_h = 720 if raw_target == "720" else 1080
+    return method, target_h
 
 
 def _slides_enabled(inp: Dict[str, Any], segment: Dict[str, Any]) -> bool:
@@ -244,13 +260,42 @@ def _process_short(
         )
         result["captions_applied"] = True
 
-    # e. Single main encode: convert + burn ----------------------------------
+    # e. Optional Real-ESRGAN upscale pre-pass (before captions, so text
+    # stays vector-crisp), then the single main encode: convert + burn.
+    upscale_method, upscale_target = _upscale_settings(inp)
+    sr_clip: Optional[Path] = None
+    if upscale_method == "realesrgan":
+        _progress(job, f"short {index}/{total}: upscaling to {upscale_target}p")
+        try:
+            if transcript_mode:
+                pre_clip = workdir / f"part{n}_pre.mp4"
+                render_mod.encode_main(source_path, pre_clip, "null", False,
+                                       start_s=segment["start_s"], end_s=segment["end_s"])
+            else:
+                pre_clip = raw_clip
+            sr_candidate = workdir / f"part{n}_sr.mp4"
+            if up_mod.upscale_video(pre_clip, sr_candidate, upscale_target):
+                sr_clip = sr_candidate
+                result["upscale"] = f"realesrgan_{upscale_target}p"
+            else:
+                result["upscale"] = "skipped_source_hires"
+        except Exception as exc:
+            # Non-fatal: ship the short with plain lanczos scaling instead.
+            logger.warning("part %d: Real-ESRGAN upscale failed (%s) — "
+                           "falling back to lanczos", n, exc)
+            result["upscale"] = "lanczos_fallback"
+    elif upscale_method == "lanczos":
+        result["upscale"] = "lanczos"
+
     _progress(job, f"short {index}/{total}: encoding {render_style} {target_w}x{target_h}")
     main_clip = workdir / f"part{n}_main.mp4"
     filter_value, use_complex = render_mod.build_convert_filter(
-        source_ar, target_ar, target_w, target_h, render_style, fg_y_offset, ass_path
+        source_ar, target_ar, target_w, target_h, render_style, fg_y_offset, ass_path,
+        sharpen=(upscale_method != "none"),
     )
-    if transcript_mode:
+    if sr_clip is not None:
+        render_mod.encode_main(sr_clip, main_clip, filter_value, use_complex)
+    elif transcript_mode:
         render_mod.encode_main(source_path, main_clip, filter_value, use_complex,
                                start_s=segment["start_s"], end_s=segment["end_s"])
     else:

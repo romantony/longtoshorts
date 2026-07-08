@@ -94,3 +94,9 @@ captions via `SRT_ENDPOINT_ID`, slides on, no BGM unless `bgm_url`/`bgm_prompt`)
 - `ass_url` (job-level) or `segments[].ass_url` (per clip) — burn a
   caller-supplied ASS subtitle file as-is instead of generating captions
   (custom styling/timing is authoritative; no hook overlay is injected).
+- `upscale: "realesrgan" | "lanczos"` + `upscale_target: "720p" | "1080p"`
+  (default 1080p) — for low-res sources (e.g. 480p masters). Real-ESRGAN runs
+  as a GPU pre-pass **before** the caption burn so text stays crisp; skipped
+  automatically when the source already meets the target, and falls back to
+  lanczos+unsharp if the image was built with `ENABLE_UPSCALE=0` or no CUDA
+  device is present. The manifest reports `upscale` per clip.

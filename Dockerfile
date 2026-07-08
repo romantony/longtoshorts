@@ -38,6 +38,19 @@ RUN if [ "$ENABLE_LOCAL_WHISPER" = "1" ]; then \
         pip3 install --no-cache-dir "faster-whisper>=1.0,<2"; \
     fi
 
+# Real-ESRGAN upscale pre-pass (upscale: "realesrgan"): torch + the compact
+# realesr-general-x4v3 weights (~5 MB). Adds ~3 GB to the image; build with
+# ENABLE_UPSCALE=0 for a slim renderer-only image (worker falls back to
+# lanczos automatically).
+ARG ENABLE_UPSCALE=1
+RUN if [ "$ENABLE_UPSCALE" = "1" ]; then \
+        pip3 install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cu121 && \
+        mkdir -p /app/models && \
+        curl -fsSL -o /app/models/realesr-general-x4v3.pth \
+            "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-x4v3.pth"; \
+    fi
+ENV UPSCALE_MODEL_PATH=/app/models/realesr-general-x4v3.pth
+
 COPY handler.py test_worker.py ./
 COPY shorts ./shorts
 

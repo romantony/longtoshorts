@@ -176,6 +176,7 @@ def build_convert_filter(
     render_style: str,
     fg_y_offset: int = DEFAULT_FG_Y_OFFSET,
     ass_path: Optional[Path] = None,
+    sharpen: bool = False,
 ) -> Tuple[str, bool]:
     """Return (filter_string, use_filter_complex).
 
@@ -183,27 +184,32 @@ def build_convert_filter(
     ASS caption burn appended to the same chain (saves a full re-encode).
     The filter_complex output is labelled [vout] (the Lambda left it
     unlabelled while also passing -map 0:v:0, which is invalid).
+
+    ``sharpen`` adds lanczos resampling + a mild unsharp pass — the "lanczos"
+    upscale mode for low-res sources (and the post-SR polish).
     """
     ass_suffix = f",ass='{_escape_filter_path(ass_path)}'" if ass_path else ""
+    lanczos = ":flags=lanczos" if sharpen else ""
+    unsharp = ",unsharp=5:5:0.8:3:3:0.4" if sharpen else ""
 
     if source_ar == target_ar:
         return (
-            f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
-            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2" + ass_suffix,
+            f"scale={width}:{height}:force_original_aspect_ratio=decrease{lanczos},"
+            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2" + unsharp + ass_suffix,
             False,
         )
 
     if source_ar == "16:9" and target_ar == "9:16":
         if render_style == "PAD":
             return (
-                f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
-                f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2" + ass_suffix,
+                f"scale={width}:{height}:force_original_aspect_ratio=decrease{lanczos},"
+                f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2" + unsharp + ass_suffix,
                 False,
             )
         if render_style == "CROP_FILL":
             return (
-                f"scale={width}:{height}:force_original_aspect_ratio=increase,"
-                f"crop={width}:{height}" + ass_suffix,
+                f"scale={width}:{height}:force_original_aspect_ratio=increase{lanczos},"
+                f"crop={width}:{height}" + unsharp + ass_suffix,
                 False,
             )
         # Default BLUR_FILL: foreground over blurred cover background.
@@ -211,7 +217,8 @@ def build_convert_filter(
             f"[0:v]split=2[bg][fg];"
             f"[bg]scale={width}:{height}:force_original_aspect_ratio=increase,"
             f"crop={width}:{height},boxblur=20:1[bg];"
-            f"[fg]scale={width}:{height}:force_original_aspect_ratio=decrease[fg];"
+            f"[fg]scale={width}:{height}:force_original_aspect_ratio=decrease{lanczos}"
+            f"{unsharp}[fg];"
             f"[bg][fg]overlay=(W-w)/2:(H-h)/2+({fg_y_offset})" + ass_suffix + "[vout]",
             True,
         )
