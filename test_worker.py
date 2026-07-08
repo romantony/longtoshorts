@@ -109,6 +109,17 @@ def run_offline_checks() -> int:
     groups = regroup_karaoke(window, 3)
     check("regroup produces karaoke cues", len(groups) >= 1 and groups[0].get("words"))
 
+    # keyword coloring: green (#00E676 -> BGR &H0076E600) on inactive keyword
+    # words; the karaoke highlight still wins while the keyword is active.
+    # ("deep" sits in the 3-word group "Deep in the", so it renders inactive
+    # while "in"/"the" are spoken.)
+    ass_kw = build_ass(cues, video_w=1080, video_h=1920, keywords=["deep", "cut off"])
+    check("keyword colored when inactive", "{\\c&H0076E600&}DEEP" in ass_kw)
+    check("karaoke highlight wins on active keyword", "{\\c&H0000D4FF&}DEEP" in ass_kw)
+    check("keywords off by config",
+          "&H0076E600" not in build_ass(cues, {"keywordHighlight": False},
+                                        video_w=1080, video_h=1920, keywords=["deep"]))
+
     ass_hook = build_ass(cues, video_w=1080, video_h=1920, hook_text="First time in 50 years")
     check("hook style present", "Style: Hook," in ass_hook)
     check("hook event over opening", "Dialogue: 1,0:00:00.00,0:00:02.80,Hook" in ass_hook)

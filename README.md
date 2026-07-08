@@ -85,7 +85,10 @@ captions via `SRT_ENDPOINT_ID`, slides on, no BGM unless `bgm_url`/`bgm_prompt`)
   (title, hook overlay, keywords, hook/flow/value/trend virality scores in the
   manifest, sorted best-first). Falls back to the duration split on failure.
 - `max_clips` / `min_clip_s` / `max_clip_s` — clip guideline, default 5 clips
-  of **30–90 s**.
+  of **30–90 s**. `num_clips` requests an **exact** count instead of a cap.
+- Caption keywords: the model's per-clip `keywords` are colored
+  `caption_config.keywordColor` (default `#00E676`); disable with
+  `caption_config.keywordHighlight: false`.
 - `hook` (default true) — burn the clip's hook line top-center for the first
   2.8 s; AI clips skip the title/end slides unless `slides` is set explicitly.
 - `ass_url` (job-level) or `segments[].ass_url` (per clip) — burn a

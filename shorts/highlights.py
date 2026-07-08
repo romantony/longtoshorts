@@ -106,11 +106,16 @@ def select_highlights(
     max_clips: int = DEFAULT_MAX_CLIPS,
     min_clip_s: float = DEFAULT_MIN_CLIP_S,
     max_clip_s: float = DEFAULT_MAX_CLIP_S,
+    exact_clips: Optional[int] = None,
     project_title: str = "",
     model: str = DEFAULT_MODEL,
     client: Optional[Any] = None,
 ) -> List[Dict[str, Any]]:
     """Return clip segments sorted by virality score (best first).
+
+    ``exact_clips`` requests exactly that many clips (the caller needs a
+    fixed count); otherwise up to ``max_clips`` are returned and the model
+    may pick fewer if the material doesn't support more.
 
     Each segment: {part_number, title, hook_line, keywords, virality, reason,
     start_s, end_s, duration_s, start_cue, end_cue}.
@@ -122,11 +127,14 @@ def select_highlights(
 
     client = client or anthropic.Anthropic()
 
+    count = int(exact_clips) if exact_clips else int(max_clips)
+    ask = (f"Select exactly {count} clips" if exact_clips
+           else f"Select up to {count} clips")
     duration_s = cues[-1]["end_ms"] / 1000
     user_prompt = (
         f"Video: {project_title or 'untitled'} — {duration_s:.0f}s total, "
         f"{len(cues)} transcript cues.\n"
-        f"Select up to {max_clips} clips, each {min_clip_s:.0f}-{max_clip_s:.0f} "
+        f"{ask}, each {min_clip_s:.0f}-{max_clip_s:.0f} "
         f"seconds long.\n\nTranscript:\n{_format_transcript(cues)}"
     )
 
@@ -149,11 +157,14 @@ def select_highlights(
     segments = _validate_clips(clips, cues, min_clip_s, max_clip_s)
     if not segments:
         raise HighlightError("no valid clips after validation")
+    if exact_clips and len(segments) < count:
+        logger.warning("requested exactly %d clips but only %d survived "
+                       "validation — returning %d", count, len(segments), len(segments))
 
     segments.sort(key=lambda s: -s["virality"]["overall"])
-    for rank, seg in enumerate(segments[:max_clips], start=1):
+    for rank, seg in enumerate(segments[:count], start=1):
         seg["part_number"] = rank
-    return segments[:max_clips]
+    return segments[:count]
 
 
 def _validate_clips(

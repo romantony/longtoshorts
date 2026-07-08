@@ -20,6 +20,8 @@ DEFAULT_CAPTION_CONFIG = {
     "strokeColor": "#000000",
     "strokeWidth": 8,
     "highlightColor": "#FFD400",
+    "keywordHighlight": True,
+    "keywordColor": "#00E676",
     "position": "bottom",
     "marginBottom": 260,
     "allCaps": True,
@@ -220,6 +222,7 @@ def build_ass(
     video_w: int = 1080,
     video_h: int = 1920,
     hook_text: Optional[str] = None,
+    keywords: Optional[List[str]] = None,
 ) -> str:
     """Build a styled ASS file. Karaoke word-highlight when enabled.
 
@@ -228,6 +231,10 @@ def build_ass(
 
     ``hook_text`` burns a top-centered hook line over the clip's first
     HOOK_SECONDS (replaces the retention-killing black title slide).
+
+    ``keywords`` (e.g. from AI highlight selection) are rendered in
+    ``keywordColor`` for OpusClip-style emphasis; the karaoke highlight
+    still wins while a keyword is the active word.
     """
     cfg = {**DEFAULT_CAPTION_CONFIG, **(cfg or {})}
     font_name = f"{cfg.get('fontFamily', 'Montserrat')} Black"
@@ -236,8 +243,20 @@ def build_ass(
     outline = _hex_to_ass_color(cfg.get("strokeColor", "#000000"))
     outline_w = int(cfg.get("strokeWidth", 8))
     highlight = _hex_to_ass_color(cfg.get("highlightColor", "#FFD400"))
+    keyword_color = _hex_to_ass_color(cfg.get("keywordColor", "#00E676"))
     all_caps = bool(cfg.get("allCaps", True))
     karaoke = bool(cfg.get("karaoke", True))
+
+    kw_set = set()
+    if keywords and bool(cfg.get("keywordHighlight", True)):
+        for keyword in keywords:
+            for word in str(keyword).split():
+                word = re.sub(r"[^\w']", "", word).lower()
+                if len(word) > 2:
+                    kw_set.add(word)
+
+    def _is_keyword(token: str) -> bool:
+        return bool(kw_set) and re.sub(r"[^\w']", "", token).lower() in kw_set
 
     if str(cfg.get("position", "bottom")).lower() == "center":
         alignment, margin_v = 5, 0
@@ -301,17 +320,28 @@ def build_ass(
                 for j, other in enumerate(words):
                     token = fmt(other["text"])
                     if j == i:
-                        parts.append(f"{{\\c{highlight}&}}{token}{{\\c{primary}&}}")
+                        color = highlight
+                    elif _is_keyword(other["text"]):
+                        color = keyword_color
                     else:
-                        parts.append(token)
+                        color = primary
+                    parts.append(f"{{\\c{color}&}}{token}")
                 dialogue.append(
                     f"Dialogue: 0,{_ms_to_ass_ts(start_ms)},{_ms_to_ass_ts(end_ms)},"
                     f"Default,,0,0,0,,{' '.join(parts)}"
                 )
         else:
+            if kw_set:
+                text = " ".join(
+                    f"{{\\c{keyword_color}&}}{fmt(tok)}{{\\c{primary}&}}"
+                    if _is_keyword(tok) else fmt(tok)
+                    for tok in cue["text"].split()
+                )
+            else:
+                text = fmt(cue["text"])
             dialogue.append(
                 f"Dialogue: 0,{_ms_to_ass_ts(cue['start_ms'])},{_ms_to_ass_ts(cue['end_ms'])},"
-                f"Default,,0,0,0,,{fmt(cue['text'])}"
+                f"Default,,0,0,0,,{text}"
             )
 
     return header + "\n".join(dialogue) + "\n"

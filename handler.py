@@ -233,7 +233,8 @@ def _process_short(
     if ass_path is None and (cues or hook_text):
         ass_path = workdir / f"part{n}.ass"
         ass_path.write_text(
-            cap_mod.build_ass(cues, caption_config, target_w, target_h, hook_text=hook_text),
+            cap_mod.build_ass(cues, caption_config, target_w, target_h,
+                              hook_text=hook_text, keywords=segment.get("keywords")),
             encoding="utf-8",
         )
     if cues:
@@ -362,12 +363,14 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
         if str(inp.get("segments_source") or "").lower() == "ai":
             if srt_cues:
                 _progress(job, "selecting highlights (AI)")
+                num_clips = inp.get("num_clips") or inp.get("num_shorts")
                 try:
                     segments = hl_mod.select_highlights(
                         srt_cues,
                         max_clips=int(inp.get("max_clips") or hl_mod.DEFAULT_MAX_CLIPS),
                         min_clip_s=float(inp.get("min_clip_s") or hl_mod.DEFAULT_MIN_CLIP_S),
                         max_clip_s=float(inp.get("max_clip_s") or hl_mod.DEFAULT_MAX_CLIP_S),
+                        exact_clips=int(num_clips) if num_clips else None,
                         project_title=str(inp.get("project_title") or ""),
                     )
                     for seg in segments:
