@@ -21,8 +21,9 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = os.environ.get("HIGHLIGHTS_MODEL", "claude-opus-4-8")
 DEFAULT_MAX_CLIPS = 5
-DEFAULT_MIN_CLIP_S = 15.0
-DEFAULT_MAX_CLIP_S = 65.0
+# Product guideline: shorts run 30-90 seconds unless the caller overrides.
+DEFAULT_MIN_CLIP_S = 30.0
+DEFAULT_MAX_CLIP_S = 90.0
 
 _SCORE_SCHEMA = {
     "type": "object",

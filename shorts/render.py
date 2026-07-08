@@ -143,16 +143,21 @@ def extract_audio_wav(src: Path, out: Path) -> None:
     )
 
 
-def extract_audio_m4a(src: Path, out: Path) -> None:
-    """AAC archival copy of the short's audio."""
-    _run(
-        [
-            "ffmpeg", "-y", "-i", str(src),
-            "-vn", "-c:a", "aac", "-b:a", "192k",
-            str(out),
-        ],
-        AUDIO_TIMEOUT, "extract-audio-m4a",
-    )
+def extract_audio_m4a(src: Path, out: Path,
+                      start_s: Optional[float] = None,
+                      end_s: Optional[float] = None) -> None:
+    """AAC archival copy of the short's audio (optionally a window of src)."""
+    cmd = ["ffmpeg", "-y"]
+    if start_s is not None:
+        cmd += ["-ss", f"{start_s:.3f}"]
+    if end_s is not None:
+        cmd += ["-to", f"{end_s:.3f}"]
+    cmd += [
+        "-i", str(src),
+        "-vn", "-c:a", "aac", "-b:a", "192k",
+        str(out),
+    ]
+    _run(cmd, AUDIO_TIMEOUT, "extract-audio-m4a")
 
 
 # ---------------------------------------------------------------------------

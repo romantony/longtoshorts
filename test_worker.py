@@ -95,6 +95,35 @@ def run_offline_checks() -> int:
     reparsed = parse_srt(srt)
     check("SRT round-trip", len(reparsed) == len(cues))
 
+    # --- transcript-first mode: SRT slicing + hook overlay -----------------------
+    from shorts.captions import regroup_karaoke, slice_cues
+
+    full = [{"start_ms": 0, "end_ms": 2000, "text": "one two"},
+            {"start_ms": 2000, "end_ms": 4000, "text": "three four"},
+            {"start_ms": 10000, "end_ms": 12000, "text": "outside"}]
+    window = slice_cues(full, 1.0, 5.0)
+    check("slice_cues drops non-overlapping", len(window) == 2)
+    check("slice_cues rebases to window", window[0]["start_ms"] == 0 and window[1]["start_ms"] == 1000)
+    check("slice_cues clamps to window", window[0]["end_ms"] == 1000)
+
+    groups = regroup_karaoke(window, 3)
+    check("regroup produces karaoke cues", len(groups) >= 1 and groups[0].get("words"))
+
+    ass_hook = build_ass(cues, video_w=1080, video_h=1920, hook_text="First time in 50 years")
+    check("hook style present", "Style: Hook," in ass_hook)
+    check("hook event over opening", "Dialogue: 1,0:00:00.00,0:00:02.80,Hook" in ass_hook)
+    check("no hook -> no Hook style", "Hook" not in build_ass(cues, video_w=1080, video_h=1920))
+
+    # --- AI segment metadata passthrough ------------------------------------------
+    segs, strategy = resolve_segments(
+        [{"partNumber": 1, "startMs": 0, "endMs": 30000, "title": "A",
+          "hook_line": "hooky", "virality": {"overall": 88},
+          "keywords": ["x"], "reason": "r"}],
+        None, None, 60.0,
+    )
+    check("explicit segments keep AI metadata",
+          segs[0].get("hook_line") == "hooky" and segs[0]["virality"]["overall"] == 88)
+
     # --- render filter builder (string-level, no ffmpeg) ------------------------
     from shorts.render import build_convert_filter, normalize_render_style
     f, complex_ = build_convert_filter("16:9", "9:16", 1080, 1920, "BLUR_FILL")

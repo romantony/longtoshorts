@@ -33,6 +33,8 @@ shorts/storage.py       R2 uploads (storystudio/{video,voice,txt,bgm}/)
 | `SRT_ENDPOINT_ID` | for `srt_source: "endpoint"` | Flux-TTS-S2T, e.g. `rnqxi6c0mlq517` |
 | `BGM_ENDPOINT_ID` | for `bgm_prompt` | falls back to `SRT_ENDPOINT_ID` |
 | `WHISPER_MODEL` | no | local STT only, default `small` |
+| `ANTHROPIC_API_KEY` | for `segments_source: "ai"` | Claude highlight selection |
+| `HIGHLIGHTS_MODEL` | no | default `claude-opus-4-8` |
 
 ## Test
 
@@ -67,3 +69,25 @@ See §3 of [`RUNPOD-SHORTS-WORKER.md`](RUNPOD-SHORTS-WORKER.md). Minimal request
 
 Everything else is optional with sane defaults (4 equal segments, BLUR_FILL,
 captions via `SRT_ENDPOINT_ID`, slides on, no BGM unless `bgm_url`/`bgm_prompt`).
+
+### Transcript-first / AI clipping (recommended)
+
+```json
+{"input": {"mode": "shorts", "project_id": "proj123",
+           "video_url": "https://.../concat.mp4",
+           "srt_url": "https://.../transcript.srt",
+           "segments_source": "ai"}}
+```
+
+- `srt_url` — full-video SRT; captions are sliced from it per clip (no
+  per-short transcription) and cuts are frame-accurate.
+- `segments_source: "ai"` — Claude picks scored, sentence-aligned highlights
+  (title, hook overlay, keywords, hook/flow/value/trend virality scores in the
+  manifest, sorted best-first). Falls back to the duration split on failure.
+- `max_clips` / `min_clip_s` / `max_clip_s` — clip guideline, default 5 clips
+  of **30–90 s**.
+- `hook` (default true) — burn the clip's hook line top-center for the first
+  2.8 s; AI clips skip the title/end slides unless `slides` is set explicitly.
+- `ass_url` (job-level) or `segments[].ass_url` (per clip) — burn a
+  caller-supplied ASS subtitle file as-is instead of generating captions
+  (custom styling/timing is authoritative; no hook overlay is injected).

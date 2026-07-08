@@ -155,6 +155,33 @@ def cues_from_words(words: List[Dict[str, Any]], words_per_group: int = 3) -> Li
     return cues
 
 
+def slice_cues(cues: List[Dict[str, Any]], start_s: float, end_s: float) -> List[Dict[str, Any]]:
+    """Cues overlapping [start_s, end_s], rebased so the window starts at 0.
+
+    Used to cut a full-video SRT down to one short's window (port of
+    E2E-slice-srt, but driven by the clip's exact boundaries).
+    """
+    start_ms, end_ms = int(start_s * 1000), int(end_s * 1000)
+    out = []
+    for cue in cues:
+        if cue["end_ms"] <= start_ms or cue["start_ms"] >= end_ms:
+            continue
+        out.append({
+            "start_ms": max(cue["start_ms"], start_ms) - start_ms,
+            "end_ms": min(cue["end_ms"], end_ms) - start_ms,
+            "text": cue["text"],
+        })
+    return out
+
+
+def regroup_karaoke(cues: List[Dict[str, Any]], words_per_group: int = 3) -> List[Dict[str, Any]]:
+    """SRT cues -> word stream (even-split timing) -> N-word karaoke groups."""
+    words: List[Dict[str, Any]] = []
+    for cue in cues:
+        words.extend(_even_split_words(cue))
+    return cues_from_words(words, words_per_group)
+
+
 def _even_split_words(cue: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Fallback word timing: split the cue duration evenly (Lambda parity)."""
     tokens = cue["text"].split()

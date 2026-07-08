@@ -181,12 +181,18 @@ def _normalise_explicit(segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         except (TypeError, ValueError):
             part_number = i + 1
         title = str(seg.get("title") or f"Part {part_number}").strip() or f"Part {part_number}"
-        out.append({
+        normalised = {
             "part_number": part_number,
             "title": title,
             "start_s": round(start, 3),
             "end_s": round(end, 3),
-        })
+        }
+        # Optional per-clip extras ride along: AI-selection metadata
+        # (SelectHighlights Lambda) and caller-supplied caption overrides.
+        for key in ("hook_line", "keywords", "virality", "reason", "ass_url"):
+            if seg.get(key) is not None:
+                normalised[key] = seg[key]
+        out.append(normalised)
     return out
 
 

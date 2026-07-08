@@ -6,6 +6,13 @@ One job = one long-form (concat) video -> N finished shorts:
   NVENC encode (9:16 convert @1080x1920 + caption burn) -> title/end slides
   -> BGM mix -> R2 upload.
 
+Transcript-first mode (recommended): pass ``srt_url`` (the Step Function's
+full-video SRT) and captions are sliced from it per clip — no per-short
+transcription round trips — with frame-accurate cuts taken during the encode.
+Add ``segments_source: "ai"`` to have Claude pick scored, sentence-aligned
+highlight clips (title + hook overlay + virality scores) from that SRT;
+requires ANTHROPIC_API_KEY, falls back to the duration split on any failure.
+
 See RUNPOD-SHORTS-WORKER.md for the full design and API contract.
 """
 
@@ -18,10 +25,12 @@ import traceback
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+import requests
 import runpod
 
 from shorts import bgm as bgm_mod
 from shorts import captions as cap_mod
+from shorts import highlights as hl_mod
 from shorts import probe as probe_mod
 from shorts import render as render_mod
 from shorts import segments as seg_mod
@@ -47,6 +56,28 @@ def _aspect_ratio_label(width: int, height: int) -> str:
     known = {(1080, 1920): "9:16", (1920, 1080): "16:9", (1080, 1080): "1:1",
              (1440, 1080): "4:3", (1080, 1440): "3:4"}
     return known.get((width, height), f"{width}:{height}")
+
+
+def _fetch_text(url: str) -> str:
+    resp = requests.get(url, timeout=60,
+                        headers={"User-Agent": "StoryStudio-Shorts/1.0"})
+    resp.raise_for_status()
+    return resp.text
+
+
+def _fetch_srt_cues(srt_url: str) -> list:
+    cues = cap_mod.parse_srt(_fetch_text(srt_url))
+    if not cues:
+        raise ValueError("srt_url returned no parseable cues")
+    return cues
+
+
+def _slides_enabled(inp: Dict[str, Any], segment: Dict[str, Any]) -> bool:
+    """Explicit ``slides`` wins; otherwise slides are skipped for AI clips
+    (which open on a hook overlay instead of a black title slide)."""
+    if "slides" in inp:
+        return bool(inp["slides"])
+    return segment.get("hook_line") is None
 
 
 def _transcribe_short(
@@ -95,6 +126,8 @@ def _process_short(
     rp_client: Optional[stt_mod.RunpodClient],
     index: int,
     total: int,
+    srt_cues: Optional[list] = None,
+    video_has_audio: bool = True,
 ) -> Dict[str, Any]:
     project_id = str(inp["project_id"])
     n = segment["part_number"]
@@ -107,9 +140,11 @@ def _process_short(
     render_style = render_mod.normalize_render_style(inp.get("render_style"))
     fg_y_offset = int(inp.get("fg_y_offset", render_mod.DEFAULT_FG_Y_OFFSET))
     captions_enabled = bool(inp.get("captions", True))
-    slides_enabled = bool(inp.get("slides", True))
+    slides_enabled = _slides_enabled(inp, segment)
+    hook_text = segment.get("hook_line") if bool(inp.get("hook", True)) else None
     bgm_volume = float(inp.get("bgm_volume") or DEFAULT_BGM_VOLUME)
     caption_config = {**cap_mod.DEFAULT_CAPTION_CONFIG, **(inp.get("caption_config") or {})}
+    transcript_mode = srt_cues is not None
 
     result: Dict[str, Any] = {
         "part_number": n,
@@ -123,56 +158,90 @@ def _process_short(
         "bgm_applied": False,
         "status": "completed",
     }
+    for key in ("hook_line", "keywords", "virality", "reason"):
+        if segment.get(key) is not None:
+            result[key] = segment[key]
 
-    # a. Trim ---------------------------------------------------------------
-    _progress(job, f"short {index}/{total}: trimming")
-    raw_clip = workdir / f"part{n}_raw.mp4"
-    render_mod.trim(source_path, raw_clip, segment["start_s"], segment["end_s"])
-
-    clip_has_audio = probe_mod.has_audio_stream(raw_clip)
+    # a. Clip source: transcript mode cuts frame-accurately during the main
+    # encode (stream-copy trims snap to keyframes — seconds off on sparse-GOP
+    # masters, which would desync the sliced captions).
+    raw_clip: Optional[Path] = None
+    if transcript_mode:
+        clip_has_audio = video_has_audio
+    else:
+        _progress(job, f"short {index}/{total}: trimming")
+        raw_clip = workdir / f"part{n}_raw.mp4"
+        render_mod.trim(source_path, raw_clip, segment["start_s"], segment["end_s"])
+        clip_has_audio = probe_mod.has_audio_stream(raw_clip)
 
     # b. Archival audio -----------------------------------------------------
     if clip_has_audio:
         m4a_path = workdir / f"part{n}_audio.m4a"
-        render_mod.extract_audio_m4a(raw_clip, m4a_path)
+        if transcript_mode:
+            render_mod.extract_audio_m4a(source_path, m4a_path,
+                                         segment["start_s"], segment["end_s"])
+        else:
+            render_mod.extract_audio_m4a(raw_clip, m4a_path)
         result["audio"] = storage.upload_file(
             m4a_path, storage.voice_key(project_id, f"part{n}_short_audio.m4a"),
             content_type="audio/mp4",
         )
 
-    # c/d. Transcribe + build captions ---------------------------------------
+    # c/d. Captions: caller-supplied ASS wins; else slice the full-video SRT
+    # or transcribe per short. A custom ASS (job-level ``ass_url`` or
+    # per-segment ``segments[].ass_url``) is burned as-is — its own styling
+    # and timing are authoritative, so no hook overlay is injected.
     ass_path: Optional[Path] = None
-    if captions_enabled and clip_has_audio:
-        _progress(job, f"short {index}/{total}: transcribing")
+    custom_ass_url = str(segment.get("ass_url") or inp.get("ass_url") or "").strip()
+    if custom_ass_url:
         try:
-            stt = _transcribe_short(inp, raw_clip, workdir, storage, project_id, n, rp_client)
-            if stt["words"]:
-                cues = cap_mod.cues_from_words(
-                    stt["words"], int(caption_config.get("wordsPerGroup", 3))
-                )
-            elif stt.get("srt_content"):
-                cues = cap_mod.parse_srt(stt["srt_content"])
-            else:
-                cues = []
-            if cues:
-                ass_path = workdir / f"part{n}.ass"
-                ass_path.write_text(
-                    cap_mod.build_ass(cues, caption_config, target_w, target_h),
-                    encoding="utf-8",
-                )
-                srt_text = cap_mod.build_srt(cues, all_caps=bool(caption_config.get("allCaps", True)))
-                result["srt"] = storage.upload_text(
-                    srt_text, storage.txt_key(project_id, f"part{n}_short.srt")
-                )
-                result["captions_applied"] = True
-            else:
-                logger.warning("part %d: transcription produced no cues — no captions", n)
+            ass_path = workdir / f"part{n}_custom.ass"
+            ass_path.write_text(_fetch_text(custom_ass_url), encoding="utf-8")
+            result["captions_applied"] = True
+            result["caption_source"] = "custom_ass"
         except Exception as exc:
-            # Captions are non-critical: ship the short without them.
-            logger.warning("part %d: caption generation failed (%s) — continuing without", n, exc)
-            result["caption_error"] = str(exc)[:300]
-    elif captions_enabled and not clip_has_audio:
+            logger.warning("part %d: ass_url fetch failed (%s) — using generated captions",
+                           n, exc)
+            ass_path = None
+
+    cues = []
+    if ass_path is None and captions_enabled and clip_has_audio:
+        if transcript_mode:
+            cues = cap_mod.regroup_karaoke(
+                cap_mod.slice_cues(srt_cues, segment["start_s"], segment["end_s"]),
+                int(caption_config.get("wordsPerGroup", 3)),
+            )
+        else:
+            _progress(job, f"short {index}/{total}: transcribing")
+            try:
+                stt = _transcribe_short(inp, raw_clip, workdir, storage, project_id, n, rp_client)
+                if stt["words"]:
+                    cues = cap_mod.cues_from_words(
+                        stt["words"], int(caption_config.get("wordsPerGroup", 3))
+                    )
+                elif stt.get("srt_content"):
+                    cues = cap_mod.parse_srt(stt["srt_content"])
+            except Exception as exc:
+                # Captions are non-critical: ship the short without them.
+                logger.warning("part %d: caption generation failed (%s) — continuing without", n, exc)
+                result["caption_error"] = str(exc)[:300]
+        if not cues and not result.get("caption_error"):
+            logger.warning("part %d: no caption cues for this window", n)
+    elif ass_path is None and captions_enabled and not clip_has_audio:
         logger.warning("part %d: clip has no audio stream — skipping captions", n)
+
+    if ass_path is None and (cues or hook_text):
+        ass_path = workdir / f"part{n}.ass"
+        ass_path.write_text(
+            cap_mod.build_ass(cues, caption_config, target_w, target_h, hook_text=hook_text),
+            encoding="utf-8",
+        )
+    if cues:
+        srt_text = cap_mod.build_srt(cues, all_caps=bool(caption_config.get("allCaps", True)))
+        result["srt"] = storage.upload_text(
+            srt_text, storage.txt_key(project_id, f"part{n}_short.srt")
+        )
+        result["captions_applied"] = True
 
     # e. Single main encode: convert + burn ----------------------------------
     _progress(job, f"short {index}/{total}: encoding {render_style} {target_w}x{target_h}")
@@ -180,7 +249,11 @@ def _process_short(
     filter_value, use_complex = render_mod.build_convert_filter(
         source_ar, target_ar, target_w, target_h, render_style, fg_y_offset, ass_path
     )
-    render_mod.encode_main(raw_clip, main_clip, filter_value, use_complex)
+    if transcript_mode:
+        render_mod.encode_main(source_path, main_clip, filter_value, use_complex,
+                               start_s=segment["start_s"], end_s=segment["end_s"])
+    else:
+        render_mod.encode_main(raw_clip, main_clip, filter_value, use_complex)
 
     # f. Slides + concat ------------------------------------------------------
     staged = main_clip
@@ -240,9 +313,12 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as exc:
         return {"error": f"storage init failed: {exc}"}
 
+    srt_url = str(inp.get("srt_url") or "").strip()
+
     rp_client: Optional[stt_mod.RunpodClient] = None
     needs_endpoint_calls = (
-        (bool(inp.get("captions", True)) and str(inp.get("srt_source") or "endpoint") == "endpoint")
+        (bool(inp.get("captions", True)) and not srt_url
+         and str(inp.get("srt_source") or "endpoint") == "endpoint")
         or (inp.get("bgm_prompt") and not inp.get("bgm_url"))
     )
     if needs_endpoint_calls:
@@ -268,25 +344,61 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
         if video_info["duration"] <= 0 or video_info["width"] <= 0:
             return {"error": f"source video unusable: {video_info}"}
 
-        # 2. Segments ----------------------------------------------------------
-        try:
-            segments, strategy = seg_mod.resolve_segments(
-                inp.get("segments"),
-                inp.get("frames"),
-                inp.get("num_shorts"),
-                video_info["duration"],
-            )
-        except seg_mod.SegmentError as exc:
-            return {"error": str(exc)}
+        # 2. Full-video SRT (transcript-first mode) ----------------------------
+        srt_cues = None
+        if srt_url:
+            _progress(job, "fetching full-video SRT")
+            try:
+                srt_cues = _fetch_srt_cues(srt_url)
+                logger.info("srt_url: %d cues", len(srt_cues))
+            except Exception as exc:
+                # Non-fatal: fall back to per-short transcription.
+                logger.warning("srt_url fetch failed (%s) — falling back to "
+                               "per-short transcription", exc)
 
-        # 3. BGM (once per project) ---------------------------------------------
+        # 3. Segments: AI highlight selection, else explicit/markers/duration ---
+        segments = None
+        strategy = None
+        if str(inp.get("segments_source") or "").lower() == "ai":
+            if srt_cues:
+                _progress(job, "selecting highlights (AI)")
+                try:
+                    segments = hl_mod.select_highlights(
+                        srt_cues,
+                        max_clips=int(inp.get("max_clips") or hl_mod.DEFAULT_MAX_CLIPS),
+                        min_clip_s=float(inp.get("min_clip_s") or hl_mod.DEFAULT_MIN_CLIP_S),
+                        max_clip_s=float(inp.get("max_clip_s") or hl_mod.DEFAULT_MAX_CLIP_S),
+                        project_title=str(inp.get("project_title") or ""),
+                    )
+                    for seg in segments:
+                        seg["end_s"] = min(seg["end_s"], video_info["duration"])
+                        seg["duration_s"] = round(seg["end_s"] - seg["start_s"], 3)
+                    strategy = "ai"
+                except Exception as exc:
+                    logger.warning("AI highlight selection failed (%s) — "
+                                   "falling back to duration split", exc)
+            else:
+                logger.warning("segments_source=ai requires a usable srt_url — "
+                               "falling back to duration split")
+        if segments is None:
+            try:
+                segments, strategy = seg_mod.resolve_segments(
+                    inp.get("segments"),
+                    inp.get("frames"),
+                    inp.get("num_shorts"),
+                    video_info["duration"],
+                )
+            except seg_mod.SegmentError as exc:
+                return {"error": str(exc)}
+
+        # 4. BGM (once per project) ---------------------------------------------
         bgm_info = None
         if inp.get("bgm_url") or inp.get("bgm_prompt"):
             _progress(job, "resolving BGM")
             max_short = max(s["duration_s"] for s in segments)
             slide_pad = (
                 render_mod.TITLE_SLIDE_SECONDS + render_mod.END_SLIDE_SECONDS
-                if bool(inp.get("slides", True)) else 0.0
+                if any(_slides_enabled(inp, s) for s in segments) else 0.0
             )
             try:
                 bgm_info = bgm_mod.resolve_bgm(
@@ -298,13 +410,14 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
                 # BGM is non-critical (Lambda parity: skip on download failure).
                 logger.warning("BGM resolution failed (%s) — continuing without BGM", exc)
 
-        # 4. Per-short loop (sequential, soft-fail per short) ---------------------
+        # 5. Per-short loop (sequential, soft-fail per short) ---------------------
         shorts_results = []
         for i, segment in enumerate(segments, start=1):
             try:
                 shorts_results.append(_process_short(
                     job, inp, segment, source_path, workdir, storage,
                     bgm_info, rp_client, i, len(segments),
+                    srt_cues=srt_cues, video_has_audio=video_info["has_audio"],
                 ))
             except Exception as exc:
                 logger.error("part %s failed: %s\n%s",
@@ -322,7 +435,7 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
         completed = [s for s in shorts_results if s.get("status") == "completed"]
         failed = [s for s in shorts_results if s.get("status") == "failed"]
 
-        # 5. BGM upload (generated) + output manifest ------------------------------
+        # 6. BGM upload (generated) + output manifest ------------------------------
         bgm_url_out = None
         if bgm_info:
             if bgm_info["generated"]:
