@@ -5,6 +5,7 @@ finished vertical shorts: 9:16 @ 1080×1920, burned karaoke captions, BGM,
 title/end slides. Replaces the AWS `E2E-ShortsFromLongForm` Step Function
 (10 Lambdas) with a single GPU worker.
 
+- **StoryStudio integration guide (how to call this from Convex/SFN):** [`STORYSTUDIO-INTEGRATION.md`](STORYSTUDIO-INTEGRATION.md)
 - **Design & API contract:** [`RUNPOD-SHORTS-WORKER.md`](RUNPOD-SHORTS-WORKER.md)
 - **Analysis of the Lambda pipeline it replaces:** [`IMPLEMENTATION.md`](IMPLEMENTATION.md)
 
