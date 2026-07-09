@@ -413,7 +413,7 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
                 try:
                     segments = hl_mod.select_highlights(
                         srt_cues,
-                        max_clips=int(inp.get("max_clips") or hl_mod.DEFAULT_MAX_CLIPS),
+                        max_clips=int(inp.get("max_clips") or seg_mod.default_num_shorts(video_info["duration"])),
                         min_clip_s=float(inp.get("min_clip_s") or hl_mod.DEFAULT_MIN_CLIP_S),
                         max_clip_s=float(inp.get("max_clip_s") or hl_mod.DEFAULT_MAX_CLIP_S),
                         exact_clips=int(num_clips) if num_clips else None,

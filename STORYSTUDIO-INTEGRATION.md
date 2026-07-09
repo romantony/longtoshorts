@@ -134,7 +134,8 @@ Segment resolution priority (unchanged from the old Lambda):
 1. Explicit `segments[]`.
 2. `frames[]` — marker strategy (`segmentStart`/`segmentEnd`/`segmentNumber`
    flags), falling back to frame-count chunking.
-3. Neither — probe duration, split into `num_shorts` (default 4) equal parts.
+3. Neither — probe duration, split into `num_shorts` (default 3 if source
+   <300s, else 5) equal parts.
 
 ### 3c. Full field reference
 
@@ -146,12 +147,12 @@ Segment resolution priority (unchanged from the old Lambda):
 | `srt_url` | string | — | full-video SRT; enables transcript-first mode (recommended) |
 | `segments_source` | string | — | `"ai"` for Claude highlight selection (requires `srt_url`) |
 | `num_clips` | int | — | exact clip count for AI mode |
-| `max_clips` | int | 5 | cap for AI mode when `num_clips` is not set |
+| `max_clips` | int | 3 if source <300s, else 5 | cap for AI mode when `num_clips` is not set |
 | `min_clip_s` / `max_clip_s` | float | 30 / 90 | AI clip length guideline |
 | `project_title` | string | `""` | shown on title slides; also given to Claude as context |
 | `segments` | array | — | explicit cut points (see 3b) |
 | `frames` | array | — | frame-marker metadata (legacy path) |
-| `num_shorts` | int | 4 | equal-split fallback count |
+| `num_shorts` | int | 3 if source <300s, else 5 | equal-split fallback count |
 | `render_style` | string | `"BLUR_FILL"` | `"BLUR_FILL"` \| `"CROP_FILL"` \| `"PAD"` — see §5 |
 | `target_width` / `target_height` | int | 1080 / 1920 | output canvas |
 | `source_aspect_ratio` | string | `"16:9"` | informational, used in filter selection |

@@ -13,8 +13,18 @@ from typing import Any, Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 DEFAULT_FRAME_DURATION = 5.0
-DEFAULT_NUM_SHORTS = 4
 MIN_SEGMENT_SECONDS = 1.0
+
+# Source-duration brackets for the default clip count when the caller
+# doesn't pass num_shorts/num_clips/max_clips: short sources yield fewer,
+# less-repetitive shorts; anything 5min+ gets the same cap.
+SHORT_DURATION_THRESHOLD_S = 300.0
+DEFAULT_NUM_SHORTS_SHORT = 3
+DEFAULT_NUM_SHORTS_LONG = 5
+
+
+def default_num_shorts(duration_s: float) -> int:
+    return DEFAULT_NUM_SHORTS_SHORT if duration_s < SHORT_DURATION_THRESHOLD_S else DEFAULT_NUM_SHORTS_LONG
 
 
 class SegmentError(Exception):
@@ -139,7 +149,7 @@ def _build_chunk_segments(timed: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 def _build_duration_segments(duration_s: float, num_shorts: int) -> List[Dict[str, Any]]:
     if duration_s <= 0:
         raise SegmentError("Cannot auto-segment: video duration unknown")
-    count = max(1, int(num_shorts or DEFAULT_NUM_SHORTS))
+    count = max(1, int(num_shorts) if num_shorts else default_num_shorts(duration_s))
     seg_dur = duration_s / count
     segments = [{
         "part_number": i + 1,
