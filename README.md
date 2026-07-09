@@ -68,8 +68,9 @@ See §3 of [`RUNPOD-SHORTS-WORKER.md`](RUNPOD-SHORTS-WORKER.md). Minimal request
            "video_url": "https://.../concat.mp4"}}
 ```
 
-Everything else is optional with sane defaults (4 equal segments, BLUR_FILL,
-captions via `SRT_ENDPOINT_ID`, slides on, no BGM unless `bgm_url`/`bgm_prompt`).
+Everything else is optional with sane defaults (3-5 equal segments —
+3 if source <300s, else 5 — BLUR_FILL, captions via `SRT_ENDPOINT_ID`,
+slides on, no BGM unless `bgm_url`/`bgm_prompt`).
 
 ### Transcript-first / AI clipping (recommended)
 
@@ -85,8 +86,9 @@ captions via `SRT_ENDPOINT_ID`, slides on, no BGM unless `bgm_url`/`bgm_prompt`)
 - `segments_source: "ai"` — Claude picks scored, sentence-aligned highlights
   (title, hook overlay, keywords, hook/flow/value/trend virality scores in the
   manifest, sorted best-first). Falls back to the duration split on failure.
-- `max_clips` / `min_clip_s` / `max_clip_s` — clip guideline, default 5 clips
-  of **30–90 s**. `num_clips` requests an **exact** count instead of a cap.
+- `max_clips` / `min_clip_s` / `max_clip_s` — clip guideline, default 3 if
+  source <300s else 5 clips of **30–90 s**. `num_clips` requests an
+  **exact** count instead of a cap.
 - Caption keywords: the model's per-clip `keywords` are colored
   `caption_config.keywordColor` (default `#00E676`); disable with
   `caption_config.keywordHighlight: false`.

@@ -265,9 +265,9 @@ success.
            "video_url": "https://.../concat.mp4"}}
 ```
 
-Produces 4 equal-length shorts, `BLUR_FILL`, captions via the configured
-transcription endpoint (no `srt_url`), title/end slides, no BGM. Useful as
-a connectivity smoke test.
+Produces 3-5 equal-length shorts (3 if source <300s, else 5), `BLUR_FILL`,
+captions via the configured transcription endpoint (no `srt_url`),
+title/end slides, no BGM. Useful as a connectivity smoke test.
 
 ---
 
