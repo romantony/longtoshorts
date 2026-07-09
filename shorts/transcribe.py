@@ -16,10 +16,38 @@ from .captions import words_from_chunks
 logger = logging.getLogger(__name__)
 
 RUNPOD_API_BASE = "https://api.runpod.ai/v2"
+DEFAULT_RUNPOD_SECRET_ID = "quartermaster/runpod-api-key"
+
+_secret_cache: Dict[str, str] = {}
 
 
 class TranscribeError(Exception):
     pass
+
+
+def _fetch_runpod_api_key_from_secrets_manager() -> str:
+    """Fall back to AWS Secrets Manager when RUNPOD_API_KEY isn't set in the env."""
+    secret_id = os.environ.get("RUNPOD_API_KEY_SECRET_ID", DEFAULT_RUNPOD_SECRET_ID)
+    if secret_id in _secret_cache:
+        return _secret_cache[secret_id]
+
+    import boto3
+    from botocore.exceptions import BotoCoreError, ClientError
+
+    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-east-1"
+    try:
+        client = boto3.client("secretsmanager", region_name=region)
+        value = client.get_secret_value(SecretId=secret_id)["SecretString"].strip()
+    except (BotoCoreError, ClientError, KeyError) as exc:
+        raise TranscribeError(
+            f"Secrets Manager lookup for {secret_id!r} failed: {exc}"
+        ) from exc
+    if not value:
+        raise TranscribeError(f"Secrets Manager secret {secret_id!r} is empty")
+
+    _secret_cache[secret_id] = value
+    logger.info("resolved RUNPOD_API_KEY from Secrets Manager (%s)", secret_id)
+    return value
 
 
 class RunpodClient:
@@ -28,7 +56,13 @@ class RunpodClient:
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or os.environ.get("RUNPOD_API_KEY", "")
         if not self.api_key:
-            raise TranscribeError("RUNPOD_API_KEY is not set (needed for cross-endpoint calls)")
+            try:
+                self.api_key = _fetch_runpod_api_key_from_secrets_manager()
+            except TranscribeError as exc:
+                raise TranscribeError(
+                    f"RUNPOD_API_KEY is not set and no fallback was usable "
+                    f"(needed for cross-endpoint calls): {exc}"
+                ) from exc
         self.session = requests.Session()
         self.session.headers.update({
             "Authorization": f"Bearer {self.api_key}",

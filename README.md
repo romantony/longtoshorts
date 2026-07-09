@@ -30,7 +30,7 @@ shorts/storage.py       R2 uploads (storystudio/{video,voice,txt,bgm}/)
 | `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | yes | never hardcode |
 | `R2_BUCKET` | no | default `e2e-storystudio` |
 | `R2_PUBLIC_BASE` | yes | e.g. `https://pub-xxx.r2.dev` |
-| `RUNPOD_API_KEY` | when calling sibling endpoints | transcribe / bgm modes |
+| `RUNPOD_API_KEY` | no | transcribe / bgm sibling-endpoint calls; falls back to AWS Secrets Manager secret `quartermaster/runpod-api-key` (override with `RUNPOD_API_KEY_SECRET_ID`) if unset — needs an AWS IAM identity with `secretsmanager:GetSecretValue` on that secret |
 | `SRT_ENDPOINT_ID` | for `srt_source: "endpoint"` | Flux-TTS-S2T, e.g. `rnqxi6c0mlq517` |
 | `BGM_ENDPOINT_ID` | for `bgm_prompt` | falls back to `SRT_ENDPOINT_ID` |
 | `WHISPER_MODEL` | no | local STT only, default `small` |
