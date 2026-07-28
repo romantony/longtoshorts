@@ -87,7 +87,10 @@ Rules:
 - hook_line: max 8 words, punchy, curiosity-driving, plain language, no quotes
   or emoji. It is burned on screen over the clip's opening.
 - keywords: 3-5 single words that appear in the clip's speech and carry its
-  emotional or informational weight."""
+  emotional or informational weight.
+- Write title, hook_line, keywords, and reason in the SAME language as the
+  transcript's speech — never translate to English unless the transcript
+  itself is in English."""
 
 
 class HighlightError(Exception):
