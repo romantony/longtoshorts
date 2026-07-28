@@ -109,7 +109,7 @@ def _transcribe_short(
     wav_path = workdir / f"part{part_number}_audio.wav"
     render_mod.extract_audio_wav(clip_path, wav_path)
 
-    language = str(inp.get("language") or DEFAULT_LANGUAGE)
+    language = str(inp.get("language") or DEFAULT_LANGUAGE).split("-")[0].lower()
     srt_source = str(inp.get("srt_source") or "endpoint").lower()
 
     if srt_source == "local":
