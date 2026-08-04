@@ -114,6 +114,10 @@ def transcribe_endpoint(
             try:
                 srt_resp = requests.get(srt_value, timeout=30)
                 if srt_resp.ok:
+                    # See handler.py's _fetch_text: requests defaults to
+                    # Latin-1 without a charset in Content-Type, mangling
+                    # non-ASCII (e.g. Hindi) SRT text. Our SRT output is UTF-8.
+                    srt_resp.encoding = "utf-8"
                     srt_content = srt_resp.text
             except Exception as exc:
                 logger.warning("failed to fetch srt from %s: %s", srt_value[:120], exc)

@@ -79,7 +79,9 @@ def main() -> int:
     # 1. Artifacts --------------------------------------------------------------
     srt_path = OUT_DIR / "transcript.srt"
     if not srt_path.exists():
-        srt_path.write_text(requests.get(SRT_URL, timeout=60).text, encoding="utf-8")
+        resp = requests.get(SRT_URL, timeout=60)
+        resp.encoding = "utf-8"  # requests defaults to Latin-1 without a charset header
+        srt_path.write_text(resp.text, encoding="utf-8")
     cues = cap_mod.parse_srt(srt_path.read_text(encoding="utf-8"))
     logger.info("parsed %d cues", len(cues))
 

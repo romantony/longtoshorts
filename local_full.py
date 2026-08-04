@@ -84,7 +84,9 @@ def main() -> int:
 
     # 1. Fetch artifacts --------------------------------------------------------
     source_path = _fetch_cached(video_url, OUT_DIR / "master.mp4")
-    srt_text = requests.get(srt_url, timeout=60).text
+    srt_resp = requests.get(srt_url, timeout=60)
+    srt_resp.encoding = "utf-8"  # requests defaults to Latin-1 without a charset header
+    srt_text = srt_resp.text
     all_cues = cap_mod.parse_srt(srt_text)
     logger.info("parsed %d cues from full-video SRT", len(all_cues))
     bgm_path = _fetch_cached(bgm_url, OUT_DIR / "bgm.mp3") if bgm_url else None

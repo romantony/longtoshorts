@@ -63,6 +63,11 @@ def _fetch_text(url: str) -> str:
     resp = requests.get(url, timeout=60,
                         headers={"User-Agent": "StoryStudio-Shorts/1.0"})
     resp.raise_for_status()
+    # requests falls back to Latin-1 when the response has no charset in its
+    # Content-Type (the norm for SRT/ASS served from S3), mangling any
+    # non-ASCII text (e.g. Hindi) into mojibake. Our own SRT/ASS output is
+    # always UTF-8, so decode as such regardless of what the header says.
+    resp.encoding = "utf-8"
     return resp.text
 
 
